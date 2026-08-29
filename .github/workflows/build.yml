@@ -1,0 +1,125 @@
+name: Multi-Platform Build & Release
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            artifact_name: Simple303-Linux
+            cmake_args: ""
+          - name: macOS
+            os: macos-latest
+            artifact_name: Simple303-macOS
+            cmake_args: "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+          - name: Windows
+            os: windows-latest
+            artifact_name: Simple303-Windows
+            cmake_args: ""
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # --- Linux Dependencies ---
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libfreetype6-dev \
+            libxcomposite-dev
+
+      # --- CMake Configure ---
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          ${{ matrix.cmake_args }}
+
+      # --- Build ---
+      - name: Build Simple303
+        run: cmake --build build --config Release --parallel
+
+      # --- Package Artifacts ---
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p package
+          cp -r build/Simple303_artefacts/Release/VST3/Simple303.vst3 package/
+          cp build/Simple303_artefacts/Release/Standalone/Simple303 package/
+          cd package && zip -r ../${{ matrix.artifact_name }}.zip ./*
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p package
+          cp -r build/Simple303_artefacts/Release/VST3/Simple303.vst3 package/
+          cp -r build/Simple303_artefacts/Release/AU/Simple303.component package/ || true
+          cp -r build/Simple303_artefacts/Release/Standalone/Simple303.app package/
+          cd package && zip -r -y ../${{ matrix.artifact_name }}.zip ./*
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package -Force
+          Copy-Item -Recurse build/Simple303_artefacts/Release/VST3/Simple303.vst3 package/
+          Copy-Item build/Simple303_artefacts/Release/Standalone/Simple303.exe package/
+          Compress-Archive -Path package/* -DestinationPath "${{ matrix.artifact_name }}.zip"
+
+      # --- Upload Workflow Artifacts ---
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.zip
+
+  # --- Automatic GitHub Release on Git Tag (e.g. v1.0.0) ---
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release and Upload Binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/Simple303-Linux/Simple303-Linux.zip
+            artifacts/Simple303-macOS/Simple303-macOS.zip
+            artifacts/Simple303-Windows/Simple303-Windows.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
