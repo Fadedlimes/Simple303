@@ -30,7 +30,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- Linux Dependencies (Includes libxi-dev for JUCE X11 Input) ---
+      # --- Linux Dependencies ---
       - name: Install Linux Dependencies
         if: runner.os == 'Linux'
         run: |
@@ -86,9 +86,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path package -Force
-          Get-ChildItem -Path build -Filter "Simple303.vst3" -Recurse | Copy-Item -Destination package/ -Recurse
-          Get-ChildItem -Path build -Filter "Simple303.exe" -Recurse | Copy-Item -Destination package/
-          Compress-Archive -Path package/* -DestinationPath "${{ matrix.artifact_name }}.zip"
+          $vst3 = (Get-ChildItem -Path build -Filter "Simple303.vst3" -Recurse -Directory).FullName | Select-Object -First 1
+          $exe  = (Get-ChildItem -Path build -Filter "Simple303.exe" -Recurse -File).FullName | Select-Object -First 1
+          if ($vst3) { Copy-Item -Path $vst3 -Destination "package" -Recurse -Force }
+          if ($exe)  { Copy-Item -Path $exe  -Destination "package" -Force }
+          Compress-Archive -Path "package\*" -DestinationPath "${{ matrix.artifact_name }}.zip" -Force
 
       # --- Upload Artifacts ---
       - name: Upload Artifacts
