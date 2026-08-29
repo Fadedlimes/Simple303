@@ -106,6 +106,7 @@ void Simple303AudioProcessor::prepareToPlay(double sampleRate, int /*samplesPerB
     currentStepIsSliding = false;
     currentlyPlayingNote = -1;
     wasPlaying = false;
+    wasHostPlaying = false;
 
     arpSampleCounter = 0.0;
     arpIndex = 0;
@@ -328,7 +329,8 @@ void Simple303AudioProcessor::processPlateReverb(float& left, float& right, floa
     right = dryR * (1.0f - m) + apR * m;
 }
 
-void Simple303AudioProcessor::handleArpeggiator(juce::MidiBuffer& midiMessages, float tempo, int numSamples)
+// Unified Direct MIDI & Arpeggiator Input Processor
+void Simple303AudioProcessor::handleMidiInput(const juce::MidiBuffer& midiMessages, float tempo, int numSamples)
 {
     int arpMode = static_cast<int>(apvts.getRawParameterValue("ARPMODE")->load());
     bool arpHold = apvts.getRawParameterValue("ARPHOLD")->load() > 0.5f;
@@ -336,102 +338,134 @@ void Simple303AudioProcessor::handleArpeggiator(juce::MidiBuffer& midiMessages, 
     for (const auto metadata : midiMessages)
     {
         auto msg = metadata.getMessage();
-        if (msg.isNoteOn())
-        {
-            if (arpHold && !anyKeyPhysicallyDown)
-                heldChordNotes.clear();
 
-            activeMidiNotes.push_back(msg.getNoteNumber());
-            heldChordNotes.push_back(msg.getNoteNumber());
-            std::sort(activeMidiNotes.begin(), activeMidiNotes.end());
-            std::sort(heldChordNotes.begin(), heldChordNotes.end());
-            anyKeyPhysicallyDown = true;
+        // 1. Hardware MIDI Realtime Transport (for Standalone / Hardware Sequencers)
+        if (msg.isMidiStart() || msg.isMidiContinue())
+            isPlaying.store(true);
+        else if (msg.isMidiStop())
+            isPlaying.store(false);
+
+        // 2. Direct MIDI Keyboard Playing (When ARP is OFF)
+        if (arpMode == 0)
+        {
+            if (msg.isNoteOn())
+            {
+                currentlyPlayingNote = msg.getNoteNumber();
+                synth.noteOn(msg.getNoteNumber(), msg.getVelocity(), 0.0);
+            }
+            else if (msg.isNoteOff())
+            {
+                synth.noteOn(msg.getNoteNumber(), 0, 0.0);
+                if (currentlyPlayingNote == msg.getNoteNumber())
+                    currentlyPlayingNote = -1;
+            }
+            else if (msg.isAllNotesOff())
+            {
+                synth.allNotesOff();
+                currentlyPlayingNote = -1;
+            }
         }
-        else if (msg.isNoteOff())
+        // 3. Arpeggiator Note Collection (When ARP is ON)
+        else
         {
-            auto it = std::find(activeMidiNotes.begin(), activeMidiNotes.end(), msg.getNoteNumber());
-            if (it != activeMidiNotes.end())
-                activeMidiNotes.erase(it);
+            if (msg.isNoteOn())
+            {
+                if (arpHold && !anyKeyPhysicallyDown)
+                    heldChordNotes.clear();
 
-            if (activeMidiNotes.empty())
+                activeMidiNotes.push_back(msg.getNoteNumber());
+                heldChordNotes.push_back(msg.getNoteNumber());
+                std::sort(activeMidiNotes.begin(), activeMidiNotes.end());
+                std::sort(heldChordNotes.begin(), heldChordNotes.end());
+                anyKeyPhysicallyDown = true;
+            }
+            else if (msg.isNoteOff())
+            {
+                auto it = std::find(activeMidiNotes.begin(), activeMidiNotes.end(), msg.getNoteNumber());
+                if (it != activeMidiNotes.end())
+                    activeMidiNotes.erase(it);
+
+                if (activeMidiNotes.empty())
+                    anyKeyPhysicallyDown = false;
+            }
+            else if (msg.isAllNotesOff())
+            {
+                activeMidiNotes.clear();
+                if (!arpHold)
+                    heldChordNotes.clear();
                 anyKeyPhysicallyDown = false;
-        }
-        else if (msg.isAllNotesOff())
-        {
-            activeMidiNotes.clear();
-            if (!arpHold)
-                heldChordNotes.clear();
-            anyKeyPhysicallyDown = false;
+            }
         }
     }
 
-    if (arpMode == 0)
-        return;
-
-    const auto& currentNotes = arpHold ? heldChordNotes : activeMidiNotes;
-    if (currentNotes.empty())
+    // Process Arpeggiator Clock if ARP is active
+    if (arpMode > 0)
     {
-        if (arpLastNotePlayed != -1)
+        const auto& currentNotes = arpHold ? heldChordNotes : activeMidiNotes;
+        if (currentNotes.empty())
         {
-            synth.noteOn(arpLastNotePlayed, 0, 0.0);
-            arpLastNotePlayed = -1;
-        }
-        return;
-    }
-
-    double arpStepSamples = (15.0 / tempo) * currentSampleRate;
-
-    arpSampleCounter += numSamples;
-    if (arpSampleCounter >= arpStepSamples)
-    {
-        arpSampleCounter = 0.0;
-        int numNotes = static_cast<int>(currentNotes.size());
-
-        if (arpMode == 1) // UP
-        {
-            arpIndex = (arpIndex + 1) % numNotes;
-        }
-        else if (arpMode == 2) // DOWN
-        {
-            arpIndex = (arpIndex - 1 + numNotes) % numNotes;
-        }
-        else if (arpMode == 3) // UP-DOWN
-        {
-            if (arpDirectionUp)
+            if (arpLastNotePlayed != -1)
             {
-                arpIndex++;
-                if (arpIndex >= numNotes - 1)
-                {
-                    arpIndex = numNotes - 1;
-                    arpDirectionUp = false;
-                }
+                synth.noteOn(arpLastNotePlayed, 0, 0.0);
+                arpLastNotePlayed = -1;
             }
-            else
-            {
-                arpIndex--;
-                if (arpIndex <= 0)
-                {
-                    arpIndex = 0;
-                    arpDirectionUp = true;
-                }
-            }
-            arpIndex = juce::jlimit(0, numNotes - 1, arpIndex);
+            return;
         }
-        else if (arpMode == 4) // RANDOM
+
+        double arpStepSamples = (15.0 / tempo) * currentSampleRate;
+
+        arpSampleCounter += numSamples;
+        if (arpSampleCounter >= arpStepSamples)
         {
-            arpIndex = juce::Random::getSystemRandom().nextInt(numNotes);
+            arpSampleCounter = 0.0;
+            int numNotes = static_cast<int>(currentNotes.size());
+
+            if (arpMode == 1) // UP
+            {
+                arpIndex = (arpIndex + 1) % numNotes;
+            }
+            else if (arpMode == 2) // DOWN
+            {
+                arpIndex = (arpIndex - 1 + numNotes) % numNotes;
+            }
+            else if (arpMode == 3) // UP-DOWN
+            {
+                if (arpDirectionUp)
+                {
+                    arpIndex++;
+                    if (arpIndex >= numNotes - 1)
+                    {
+                        arpIndex = numNotes - 1;
+                        arpDirectionUp = false;
+                    }
+                }
+                else
+                {
+                    arpIndex--;
+                    if (arpIndex <= 0)
+                    {
+                        arpIndex = 0;
+                        arpDirectionUp = true;
+                    }
+                }
+                arpIndex = juce::jlimit(0, numNotes - 1, arpIndex);
+            }
+            else if (arpMode == 4) // RANDOM
+            {
+                arpIndex = juce::Random::getSystemRandom().nextInt(numNotes);
+            }
+
+            int noteToPlay = currentNotes[static_cast<size_t>(arpIndex)];
+            if (arpLastNotePlayed != -1)
+                synth.noteOn(arpLastNotePlayed, 0, 0.0);
+
+            currentlyPlayingNote = noteToPlay;
+            synth.noteOn(noteToPlay, 100, 0.0);
+            arpLastNotePlayed = noteToPlay;
         }
-
-        int noteToPlay = currentNotes[static_cast<size_t>(arpIndex)];
-        if (arpLastNotePlayed != -1)
-            synth.noteOn(arpLastNotePlayed, 0, 0.0);
-
-        synth.noteOn(noteToPlay, 100, 0.0);
-        arpLastNotePlayed = noteToPlay;
     }
 }
 
-// Smart Page-Aware Musically-Biased Acid Pattern Generator
 void Simple303AudioProcessor::randomizeCurrentPattern(int targetPattern, int targetPage)
 {
     int rootKey = static_cast<int>(apvts.getRawParameterValue("RANDROOT")->load());
@@ -452,7 +486,6 @@ void Simple303AudioProcessor::randomizeCurrentPattern(int targetPattern, int tar
     auto& r = juce::Random::getSystemRandom();
     int b = juce::jlimit(0, 3, targetPattern);
 
-    // Tonal Anchors: Roots, Fifths, Octaves
     int rootC1 = 24 + rootKey;
     int rootC2 = 36 + rootKey;
     int rootC3 = 48 + rootKey;
@@ -475,7 +508,6 @@ void Simple303AudioProcessor::randomizeCurrentPattern(int targetPattern, int tar
     int startIdx = 0;
     int endIdx = getSequenceLength();
 
-    // Page-specific targeting: If on Page 2, 3, or 4, randomize ONLY that page!
     if (targetPage > 0 && targetPage < 4)
     {
         startIdx = targetPage * 16;
@@ -484,7 +516,6 @@ void Simple303AudioProcessor::randomizeCurrentPattern(int targetPattern, int tar
 
     int motif = r.nextInt(3);
 
-    // 1. Pass 1: Rhythms & Tonal Note Assignment
     for (int i = startIdx; i < endIdx; ++i)
     {
         int stepInBar = i % 16;
@@ -518,7 +549,6 @@ void Simple303AudioProcessor::randomizeCurrentPattern(int targetPattern, int tar
         }
     }
 
-    // 2. Pass 2: Strict Legato Slide Validation
     for (int i = startIdx; i < endIdx; ++i)
     {
         int nextStep = (i + 1) % 64;
@@ -542,9 +572,44 @@ void Simple303AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     juce::ScopedNoDenormals noDenormals;
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
+    float tempo = apvts.getRawParameterValue("TEMPO")->load();
+
+    // 1. Host DAW PlayHead Transport & Tempo Sync
+    if (auto* playHead = getPlayHead())
+    {
+        if (auto position = playHead->getPosition())
+        {
+            // Sync Tempo from Host DAW
+            if (position->getBpm().hasValue())
+            {
+                double hostBpm = *position->getBpm();
+                if (hostBpm >= 20.0 && hostBpm <= 400.0)
+                {
+                    tempo = static_cast<float>(hostBpm);
+                    if (auto* p = apvts.getParameter("TEMPO"))
+                    {
+                        float normVal = apvts.getParameterRange("TEMPO").convertTo0to1(tempo);
+                        if (std::abs(p->getValue() - normVal) > 0.001f)
+                            p->setValueNotifyingHost(normVal);
+                    }
+                }
+            }
+
+            // Sync Play / Stop Transport from Host DAW
+            bool hostIsPlaying = position->getIsPlaying();
+            if (hostIsPlaying != wasHostPlaying)
+            {
+                isPlaying.store(hostIsPlaying);
+                wasHostPlaying = hostIsPlaying;
+            }
+        }
+    }
+
+    // 2. Process Incoming MIDI (Direct Keyboard & Arp)
+    handleMidiInput(midiMessages, tempo, buffer.getNumSamples());
+
     float waveVal = apvts.getRawParameterValue("WAVEFORM")->load() * 0.01f;
     synth.setWaveform(static_cast<double>(waveVal));
-
     synth.setTuning(apvts.getRawParameterValue("TUNING")->load());
 
     float baseCutoff = apvts.getRawParameterValue("CUTOFF")->load();
@@ -567,9 +632,6 @@ void Simple303AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
     float driveAmount = apvts.getRawParameterValue("DRIVE")->load();
     float fmAmount = apvts.getRawParameterValue("FM")->load() * 0.01f;
-    float tempo = apvts.getRawParameterValue("TEMPO")->load();
-
-    handleArpeggiator(midiMessages, tempo, buffer.getNumSamples());
 
     juce::MidiBuffer outMidi;
     samplesPerStep = (15.0 / tempo) * currentSampleRate;
@@ -579,6 +641,7 @@ void Simple303AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
     bool playing = isPlaying.load();
 
+    // Start Internal Sequencer
     if (playing && !wasPlaying)
     {
         outMidi.addEvent(juce::MidiMessage::midiStart(), 0);
@@ -724,6 +787,7 @@ void Simple303AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             rightChannel[sample] = outL;
     }
 
+    // Process FX Rack Chain
     float ds1Dist = apvts.getRawParameterValue("DS1_DIST")->load();
     float ds1Tone = apvts.getRawParameterValue("DS1_TONE")->load();
     float ds1Level = apvts.getRawParameterValue("DS1_LEVEL")->load();

@@ -35,6 +35,7 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    // XML Preset & Randomizer
     juce::String exportPresetToXmlString();
     bool importPresetFromXmlString(const juce::String& xmlString);
     void randomizeCurrentPattern(int targetPattern, int targetPage);
@@ -61,7 +62,7 @@ private:
     void processDs1Distortion(float& left, float& right, float dist, float tone, float level, float mix);
     void processStereoDelay(float& left, float& right, int timeChoice, float fdbk, bool pingpong, float mix, float tempo);
     void processPlateReverb(float& left, float& right, float size, float decay, float predly, float hpf, float lpf, float mix);
-    void handleArpeggiator(juce::MidiBuffer& midiMessages, float tempo, int numSamples);
+    void handleMidiInput(const juce::MidiBuffer& midiMessages, float tempo, int numSamples);
 
     rosic::Open303 synth;
 
@@ -75,8 +76,9 @@ private:
     bool currentStepIsSliding = false;
     int currentlyPlayingNote = -1;
     bool wasPlaying = false;
+    bool wasHostPlaying = false;
 
-    // Arpeggiator State
+    // Arpeggiator & Direct MIDI State
     std::vector<int> activeMidiNotes;
     std::vector<int> heldChordNotes;
     int arpIndex = 0;
