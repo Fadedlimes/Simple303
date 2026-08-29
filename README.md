@@ -2,7 +2,6 @@
 
 <div align="center">
 
-![Simple303 Banner](https://raw.githubusercontent.com/Fadedlimes/Simple303/main/Source/preview.png)
 
 **A simple, hands-on, and accessible virtual TB-303 bassline synthesizer and analogue-style 16-step sequencer.**
 
