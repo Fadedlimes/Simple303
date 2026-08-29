@@ -30,7 +30,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- Linux Dependencies ---
+      # --- Linux Dependencies (Includes libxi-dev for JUCE X11 Input) ---
       - name: Install Linux Dependencies
         if: runner.os == 'Linux'
         run: |
@@ -47,7 +47,8 @@ jobs:
             libxinerama-dev \
             libxcursor-dev \
             libfreetype6-dev \
-            libxcomposite-dev
+            libxcomposite-dev \
+            libxi-dev
 
       # --- Configure CMake ---
       - name: Configure CMake (Linux & Windows)
