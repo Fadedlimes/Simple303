@@ -3,7 +3,7 @@
 <div align="center">
 
 
-**A simple, hands-on, and accessible virtual TB-303 bassline synthesizer based off [Open-303](https://github.com/RobinSchmidt/Open303) with analogue-style 64-step sequencer.**
+**A simple, hands-on, and accessible virtual TB-303 bassline synthesizer using [Open-303](https://github.com/RobinSchmidt/Open303) with analogue-style 64-step sequencer.**
 
 [![Build & Release](https://github.com/Fadedlimes/Simple303/actions/workflows/build.yml/badge.svg)](https://github.com/Fadedlimes/Simple303/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Fadedlimes/Simple303?include_prereleases&color=orange)](https://github.com/Fadedlimes/Simple303/releases)
