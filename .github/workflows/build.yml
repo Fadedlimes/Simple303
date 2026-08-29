@@ -56,13 +56,13 @@ jobs:
 
       - name: Configure CMake (macOS Universal)
         if: runner.os == 'macOS'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET="10.15" -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       # --- Build ---
       - name: Build Simple303
         run: cmake --build build --config Release --parallel
 
-      # --- Package Artifacts (Dynamic Search) ---
+      # --- Package Artifacts ---
       - name: Package Linux
         if: runner.os == 'Linux'
         run: |
