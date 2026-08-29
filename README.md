@@ -11,6 +11,9 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/Fadedlimes/Simple303/releases)
 
+<img width="1060" height="477" alt="image" src="https://github.com/user-attachments/assets/37bc927b-bcbd-40e3-b6b3-1a7153a4090c" />
+<img width="1061" height="475" alt="image" src="https://github.com/user-attachments/assets/9c6c60de-a154-41fc-a1ed-38309277d78f" />
+
 </div>
 
 ---
