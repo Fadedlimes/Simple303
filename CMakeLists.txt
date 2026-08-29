@@ -16,7 +16,6 @@ FetchContent_MakeAvailable(JUCE)
 file(GLOB_RECURSE DSP_SOURCES "DSPCode/*.cpp" "DSPCode/*.h")
 file(GLOB_RECURSE PLUGIN_SOURCES "Source/*.cpp" "Source/*.h")
 
-# Plugin Formats: VST3 & Standalone on all platforms + AU on macOS
 set(PLUGIN_FORMATS VST3 Standalone)
 if(APPLE)
     list(APPEND PLUGIN_FORMATS AU)
@@ -51,6 +50,8 @@ target_compile_definitions(Simple303
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
+        _USE_MATH_DEFINES
+        NOMINMAX
 )
 
 target_link_libraries(Simple303
