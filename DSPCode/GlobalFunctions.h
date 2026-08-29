@@ -233,10 +233,12 @@ INLINE double exp10(double x)
   return exp(LN10*x);
 }
 
+#if !defined(_MSC_VER)
 INLINE double exp2(double x)
 {
   return exp(LN2*x);
 }
+#endif
 
 INLINE double freqToPitch(double freq)
 {
@@ -300,10 +302,12 @@ INLINE bool isPowerOfTwo(unsigned int x)
   return false;
 }
 
+#if !defined(_MSC_VER)
 INLINE double log2(double x)
 {
   return ONE_OVER_LN2*log(x);
 }
+#endif
 
 INLINE double logB(double x, double b)
 {
